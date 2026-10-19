@@ -1,0 +1,6 @@
+# CloudTrain Bootstrap Configuration
+# Copy this file to terraform.tfvars and fill in your values:
+
+region      = "ap-south-1"
+github_repo = "OWNER/REPO"  # e.g., "your-username/cloudtrain"
+env         = "prod"

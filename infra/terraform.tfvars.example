@@ -1,0 +1,14 @@
+# CloudTrain Main Stack Configuration
+# Copy this file to terraform.tfvars and fill in your values (or pass via CI/CD):
+
+region             = "ap-south-1"
+env                = "prod"
+alert_email        = "your-alerts-email@example.com"
+monthly_budget_usd = 10
+ecr_repository_url = ""  # From bootstrap output: ecr_repository_url
+trainer_image_tag  = "latest"
+
+# Cost Guardrails (defaults)
+max_concurrent_instances = 2
+instance_type_small      = "t3.small"
+instance_type_medium     = "t3.medium"
