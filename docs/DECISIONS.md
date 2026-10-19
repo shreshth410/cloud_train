@@ -19,3 +19,4 @@ This file records design decisions made during implementation, especially where 
 | 13 | ASCII log tags in predict_example template | Replaced unicode emoji with `[OK]` to support cp1252 standard Windows shell environments alongside Linux | 2026-10-19 |
 | 14 | Allow seq=0 in status_event.schema.json | Updated minimum from 1 to 0 to support EC2 bootstrap failure events specified in Section 11.3 | 2026-10-19 |
 | 15 | DynamoDB Decimal safe transformations | Implemented to_dynamo_safe/from_dynamo_safe and DecimalEncoder to ensure seamless float-Decimal conversions across boto3 and REST JSON | 2026-10-19 |
+| 16 | SPA runtime config & local auth bypass | Loaded `/config.json` dynamically at boot to maintain environment-agnostic builds across S3/CloudFront, and provided a local guest session toggle for rapid testing | 2026-10-19 |
