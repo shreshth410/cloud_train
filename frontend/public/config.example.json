@@ -1,0 +1,7 @@
+# Frontend config example
+{
+  "api_url": "http://localhost:3000",
+  "region": "ap-south-1",
+  "user_pool_id": "ap-south-1_EXAMPLE",
+  "user_pool_client_id": "EXAMPLE_CLIENT_ID"
+}

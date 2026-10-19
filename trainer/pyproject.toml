@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloudtrain-trainer"
+version = "0.1.0"
+description = "CloudTrain training container"
+requires-python = ">=3.11"
+dependencies = [
+    "scikit-learn>=1.5.0,<1.6",
+    "xgboost>=2.1.0,<2.2",
+    "pandas>=2.2.0,<2.3",
+    "numpy>=2.0.0,<3",
+    "joblib>=1.4.0",
+    "boto3>=1.35.0",
+    "jsonschema>=4.23.0",
+    "pyarrow>=17.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "moto[s3,sqs]>=5.0",
+    "ruff>=0.7.0",
+    "mypy>=1.12",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "moto", "moto.*", "boto3.*", "botocore.*",
+    "sklearn.*", "xgboost.*", "pandas.*", "numpy.*",
+    "joblib.*", "jsonschema.*", "pyarrow.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --tb=short"
