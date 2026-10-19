@@ -2,6 +2,7 @@
 
 import os
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import boto3
@@ -14,6 +15,28 @@ from common.states import (
 )
 
 logger = get_logger("ddb")
+
+
+def to_dynamo_safe(obj: Any) -> Any:
+    """Recursively convert float to Decimal for DynamoDB storage."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: to_dynamo_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [to_dynamo_safe(v) for v in obj]
+    return obj
+
+
+def from_dynamo_safe(obj: Any) -> Any:
+    """Recursively convert Decimal to float or int."""
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    if isinstance(obj, dict):
+        return {k: from_dynamo_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [from_dynamo_safe(v) for v in obj]
+    return obj
 
 
 def get_ddb_client() -> Any:
@@ -164,7 +187,8 @@ def get_job(table_name: str, job_id: str) -> dict[str, Any] | None:
     resource = get_ddb_resource()
     table = resource.Table(table_name)
     resp = table.get_item(Key={"job_id": job_id})
-    return resp.get("Item")
+    item = resp.get("Item")
+    return from_dynamo_safe(item) if item is not None else None
 
 
 def create_job(table_name: str, job_item: dict[str, Any]) -> None:
@@ -176,7 +200,8 @@ def create_job(table_name: str, job_item: dict[str, Any]) -> None:
     job_item.setdefault("updated_at", now)
     job_item.setdefault("progress", 0)
     job_item.setdefault("slot_released", False)
-    table.put_item(Item=job_item)
+    safe_item = to_dynamo_safe(job_item)
+    table.put_item(Item=safe_item)
 
 
 def apply_status_event(
@@ -288,7 +313,8 @@ def get_dataset(table_name: str, dataset_id: str) -> dict[str, Any] | None:
     resource = get_ddb_resource()
     table = resource.Table(table_name)
     resp = table.get_item(Key={"dataset_id": dataset_id})
-    return resp.get("Item")
+    item = resp.get("Item")
+    return from_dynamo_safe(item) if item is not None else None
 
 
 def create_dataset(table_name: str, dataset_item: dict[str, Any]) -> None:
@@ -298,7 +324,8 @@ def create_dataset(table_name: str, dataset_item: dict[str, Any]) -> None:
     now = now_iso()
     dataset_item.setdefault("created_at", now)
     dataset_item.setdefault("updated_at", now)
-    table.put_item(Item=dataset_item)
+    safe_item = to_dynamo_safe(dataset_item)
+    table.put_item(Item=safe_item)
 
 
 def count_user_active_jobs(table_name: str, user_id: str) -> int:

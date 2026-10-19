@@ -1,6 +1,707 @@
-# OpenAPI stub
-openapi: "3.0.3"
+openapi: 3.1.0
 info:
   title: CloudTrain API
-  version: "0.1.0"
-paths: {}
+  version: 1.0.0
+  description: >
+    API for CloudTrain: an autonomous, no-code, cloud-based machine learning
+    model training platform on AWS.
+servers:
+  - url: /
+    description: Current API Gateway deployment
+paths:
+  /me:
+    get:
+      summary: Get caller profile and quota usage
+      operationId: getCallerProfile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile and resource quota status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /models:
+    get:
+      summary: Get model registry
+      operationId: getModelRegistry
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Supported ML models, tasks, and hyperparameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelRegistryResponse'
+
+  /datasets:
+    get:
+      summary: List user datasets
+      operationId: listDatasets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of datasets owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      summary: Create dataset and generate pre-signed upload URL
+      operationId: createDataset
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Original CSV filename
+                  example: iris.csv
+      responses:
+        '201':
+          description: Dataset created and presigned S3 POST URL generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateDatasetResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/DatasetLimitError'
+
+  /datasets/{id}:
+    get:
+      summary: Get dataset details and tabular profile
+      operationId: getDataset
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dataset record and metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetRecord'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    delete:
+      summary: Delete dataset and associated S3 data
+      operationId: deleteDataset
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Dataset successfully deleted
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /jobs:
+    get:
+      summary: List user training jobs
+      operationId: listJobs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [QUEUED, PROVISIONING, RUNNING, UPLOADING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of training jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      summary: Validate configuration and enqueue a new training job
+      operationId: createJob
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '202':
+          description: Job validated and accepted into dispatch queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    example: QUEUED
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/TooManyActiveJobsError'
+
+  /jobs/{id}:
+    get:
+      summary: Get training job details and status
+      operationId: getJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Complete training job item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRecord'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    delete:
+      summary: Delete a finished/terminal job and its S3 artifacts
+      operationId: deleteJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Job and artifacts deleted
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/JobActiveConflictError'
+
+  /jobs/{id}/cancel:
+    post:
+      summary: Cancel an active or queued training job
+      operationId: cancelJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    example: CANCELLED
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /jobs/{id}/logs:
+    get:
+      summary: Stream training stdout logs
+      operationId: getJobLogs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: next
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Array of log lines with continuation token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobLogsResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /jobs/{id}/artifacts:
+    get:
+      summary: Get pre-signed download URLs for model artifacts
+      operationId: getJobArtifacts
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Download URLs for job artifacts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactsResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/JobNotSucceededError'
+
+  /jobs/{id}/results:
+    get:
+      summary: Get parsed metrics and feature importances
+      operationId: getJobResults
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Combined metrics and feature importance dictionary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: object
+                  feature_importance:
+                    type: object
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/JobNotSucceededError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequestError:
+      description: Bad request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnauthorizedError:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFoundError:
+      description: Requested item not found or belongs to another user
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ConflictError:
+      description: Operation conflicts with current resource state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ValidationError:
+      description: Configuration validation failure with field paths
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    DatasetLimitError:
+      description: Maximum number of datasets reached
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyActiveJobsError:
+      description: Active jobs limit reached
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    JobActiveConflictError:
+      description: Active jobs cannot be deleted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    JobNotSucceededError:
+      description: Artifacts and results are only available for SUCCEEDED jobs
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: VALIDATION_FAILED
+            message:
+              type: string
+              example: Configuration is invalid.
+            details:
+              type: object
+
+    UserProfileResponse:
+      type: object
+      required:
+        - user_id
+        - quotas
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+        quotas:
+          type: object
+          required:
+            - datasets_used
+            - datasets_max
+            - active_jobs
+            - active_jobs_max
+          properties:
+            datasets_used:
+              type: integer
+            datasets_max:
+              type: integer
+            active_jobs:
+              type: integer
+            active_jobs_max:
+              type: integer
+
+    ModelRegistryResponse:
+      type: object
+      required:
+        - version
+        - models
+      properties:
+        version:
+          type: integer
+        models:
+          type: array
+          items:
+            type: object
+
+    CreateDatasetResponse:
+      type: object
+      required:
+        - dataset_id
+        - upload
+        - expires_in
+      properties:
+        dataset_id:
+          type: string
+        upload:
+          type: object
+          required:
+            - url
+            - fields
+          properties:
+            url:
+              type: string
+            fields:
+              type: object
+        expires_in:
+          type: integer
+          example: 900
+
+    DatasetRecord:
+      type: object
+      required:
+        - dataset_id
+        - user_id
+        - name
+        - status
+        - created_at
+      properties:
+        dataset_id:
+          type: string
+        user_id:
+          type: string
+        name:
+          type: string
+        s3_key:
+          type: string
+        size_bytes:
+          type: integer
+        status:
+          type: string
+          enum: [PENDING_UPLOAD, PROFILING, READY, INVALID]
+        profile:
+          type: object
+        errors:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    DatasetListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatasetRecord'
+        next_cursor:
+          type: string
+          nullable: true
+
+    CreateJobRequest:
+      type: object
+      required:
+        - dataset_id
+        - target_column
+        - model
+      properties:
+        name:
+          type: string
+          maxLength: 80
+        dataset_id:
+          type: string
+        task:
+          type: string
+          enum: [auto, classification, regression]
+          default: auto
+        target_column:
+          type: string
+        feature_columns:
+          type: array
+          items:
+            type: string
+          nullable: true
+        model:
+          type: object
+          required:
+            - id
+          properties:
+            id:
+              type: string
+            hyperparameters:
+              type: object
+        preprocessing:
+          type: object
+        split:
+          type: object
+        cross_validation:
+          type: object
+        compute:
+          type: object
+        max_runtime_minutes:
+          type: integer
+          minimum: 5
+          maximum: 180
+
+    JobRecord:
+      type: object
+      required:
+        - job_id
+        - user_id
+        - status
+        - stage
+        - progress
+        - created_at
+      properties:
+        job_id:
+          type: string
+        user_id:
+          type: string
+        name:
+          type: string
+        dataset_id:
+          type: string
+        status:
+          type: string
+          enum: [QUEUED, PROVISIONING, RUNNING, UPLOADING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT]
+        stage:
+          type: string
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        config:
+          type: object
+        instance_id:
+          type: string
+        instance_type:
+          type: string
+        metrics_summary:
+          type: object
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        started_at:
+          type: string
+        finished_at:
+          type: string
+
+    JobListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRecord'
+        next_cursor:
+          type: string
+          nullable: true
+
+    JobLogsResponse:
+      type: object
+      required:
+        - lines
+        - source
+      properties:
+        lines:
+          type: array
+          items:
+            type: object
+            required:
+              - ts
+              - text
+            properties:
+              ts:
+                type: integer
+              text:
+                type: string
+        next:
+          type: string
+          nullable: true
+        source:
+          type: string
+          enum: [cloudwatch, s3, none]
+
+    ArtifactsResponse:
+      type: object
+      required:
+        - files
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            required:
+              - name
+              - size
+              - url
+            properties:
+              name:
+                type: string
+              size:
+                type: integer
+              url:
+                type: string

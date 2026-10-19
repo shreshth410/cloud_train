@@ -17,3 +17,5 @@ This file records design decisions made during implementation, especially where 
 | 11 | Using `make` on Windows via Git Bash / WSL | The Makefile uses bash syntax; Windows users should run via Git Bash, WSL, or equivalent | 2026-10-19 |
 | 12 | Relaxed numpy version to `<3` in trainer pyproject.toml | Local dev is on Python 3.13 which lacks numpy<2.1 wheels; Docker container pins 3.11 with exact versions; Dockerfile `pip install` line pins `numpy<2.1` | 2026-10-19 |
 | 13 | ASCII log tags in predict_example template | Replaced unicode emoji with `[OK]` to support cp1252 standard Windows shell environments alongside Linux | 2026-10-19 |
+| 14 | Allow seq=0 in status_event.schema.json | Updated minimum from 1 to 0 to support EC2 bootstrap failure events specified in Section 11.3 | 2026-10-19 |
+| 15 | DynamoDB Decimal safe transformations | Implemented to_dynamo_safe/from_dynamo_safe and DecimalEncoder to ensure seamless float-Decimal conversions across boto3 and REST JSON | 2026-10-19 |

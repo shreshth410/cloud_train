@@ -74,3 +74,52 @@ class InternalError(CloudTrainError):
 
     def __init__(self, message: str = "An unexpected error occurred."):
         super().__init__(code="INTERNAL_ERROR", message=message, status_code=500)
+
+
+class InvalidFilenameError(CloudTrainError):
+    """Raised when uploaded file name is invalid."""
+
+    def __init__(self, message: str = "Dataset filename must end with .csv"):
+        super().__init__(code="INVALID_FILENAME", message=message, status_code=400)
+
+
+class DatasetInUseError(ConflictError):
+    """Raised when deleting a dataset currently in use by active jobs."""
+
+    def __init__(self, message: str = "Cannot delete dataset currently in use by an active training job."):
+        super().__init__(code="DATASET_IN_USE", message=message)
+
+
+class DatasetNotReadyError(ConflictError):
+    """Raised when training is attempted on a non-ready dataset."""
+
+    def __init__(self, message: str = "Dataset is not ready for training."):
+        super().__init__(code="DATASET_NOT_READY", message=message)
+
+
+class JobActiveError(ConflictError):
+    """Raised when trying to delete an active job."""
+
+    def __init__(self, message: str = "Cannot delete active job."):
+        super().__init__(code="JOB_ACTIVE", message=message)
+
+
+class JobNotSucceededError(ConflictError):
+    """Raised when artifacts/results requested for a non-succeeded job."""
+
+    def __init__(self, message: str = "Artifacts/results are only available for SUCCEEDED jobs."):
+        super().__init__(code="JOB_NOT_SUCCEEDED", message=message)
+
+
+class DatasetLimitError(QuotaExceededError):
+    """Raised when user dataset quota is exceeded."""
+
+    def __init__(self, message: str = "User dataset limit exceeded."):
+        super().__init__(code="DATASET_LIMIT", message=message)
+
+
+class TooManyActiveJobsError(QuotaExceededError):
+    """Raised when user active jobs quota is exceeded."""
+
+    def __init__(self, message: str = "Maximum active jobs limit reached."):
+        super().__init__(code="TOO_MANY_ACTIVE_JOBS", message=message)
