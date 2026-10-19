@@ -16,3 +16,4 @@ This file records design decisions made during implementation, especially where 
 | 10 | Trainer instance role not scoped per job | Only the platform's own trainer image runs; user code is never executed (spec 11.4 limitation) | 2026-10-19 |
 | 11 | Using `make` on Windows via Git Bash / WSL | The Makefile uses bash syntax; Windows users should run via Git Bash, WSL, or equivalent | 2026-10-19 |
 | 12 | Relaxed numpy version to `<3` in trainer pyproject.toml | Local dev is on Python 3.13 which lacks numpy<2.1 wheels; Docker container pins 3.11 with exact versions; Dockerfile `pip install` line pins `numpy<2.1` | 2026-10-19 |
+| 13 | ASCII log tags in predict_example template | Replaced unicode emoji with `[OK]` to support cp1252 standard Windows shell environments alongside Linux | 2026-10-19 |
