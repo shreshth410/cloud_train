@@ -1,6 +1,7 @@
 """Dataset download, loading, target cleaning, and validation."""
 
-import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import boto3
@@ -20,6 +21,7 @@ class DataValidationError(Exception):
 def load_dataset(
     config: dict[str, Any],
     bucket_name: str | None = None,
+    user_id: str | None = None,
     s3_endpoint_url: str | None = None,
     region: str | None = None,
     local_csv_path: str | None = None,
@@ -37,7 +39,7 @@ def load_dataset(
         csv_file = local_csv_path
     else:
         dataset_id = config["dataset_id"]
-        user_id = config.get("user_id")
+        uid = user_id or config.get("user_id")
         assert bucket_name, "DATA_BUCKET must be provided for S3 dataset download"
 
         s3 = boto3.client(
@@ -45,9 +47,8 @@ def load_dataset(
             region_name=region or "ap-south-1",
             endpoint_url=s3_endpoint_url,
         )
-        s3_key = dataset_profile.get("s3_key") or f"datasets/{user_id}/{dataset_id}.csv"
-        csv_file = f"/tmp/{dataset_id}.csv"
-        os.makedirs(os.path.dirname(csv_file), exist_ok=True)
+        s3_key = dataset_profile.get("s3_key") or f"datasets/{uid}/{dataset_id}/data.csv"
+        csv_file = str(Path(tempfile.gettempdir()) / f"cloudtrain_{dataset_id}.csv")
         try:
             s3.download_file(bucket_name, s3_key, csv_file)
         except Exception as exc:

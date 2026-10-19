@@ -100,6 +100,7 @@ def run_pipeline(
         X_raw, y_raw, resolved_task = load_dataset(
             config=config,
             bucket_name=bucket_name,
+            user_id=user_id,
             s3_endpoint_url=s3_endpoint_url,
             region=region,
             local_csv_path=local_csv_path,
