@@ -1,0 +1,140 @@
+name: Deploy (Prod)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    name: Run Pre-Deployment Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Backend Unit Tests
+        run: |
+          pip install -e backend/ -e trainer/ pytest moto boto3 ruff openapi-spec-validator
+          ruff check .
+          pytest backend/tests/ -c backend/pyproject.toml
+          pytest trainer/tests/ -c trainer/pyproject.toml
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Frontend Tests & Build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run test
+          npm run build
+
+  deploy:
+    name: Deploy CloudTrain Stack to AWS
+    needs: [test]
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Trainer Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: trainer/Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+            ${{ vars.ECR_REPOSITORY_URL }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up Python for Lambda Packaging
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Lambda Deployment Packages
+        run: |
+          bash backend/build.sh
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      - name: Terraform Apply
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=cloudtrain/prod/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION || 'ap-south-1' }}"
+
+          terraform apply -auto-approve \
+            -var="env=prod" \
+            -var="region=${{ vars.AWS_REGION || 'ap-south-1' }}" \
+            -var="trainer_image_tag=${{ github.sha }}" \
+            -var="ecr_repository_url=${{ vars.ECR_REPOSITORY_URL }}" \
+            -var="alert_email=${{ vars.ALERT_EMAIL }}" \
+            -var="monthly_budget_usd=${{ vars.MONTHLY_BUDGET_USD || 10 }}"
+
+          # Export outputs
+          echo "WEB_BUCKET=$(terraform output -raw web_bucket)" >> $GITHUB_ENV
+          echo "CF_DIST_ID=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_ENV
+          echo "CF_URL=$(terraform output -raw cloudfront_url)" >> $GITHUB_ENV
+          echo "API_URL=$(terraform output -raw api_url)" >> $GITHUB_ENV
+
+      - name: Build Frontend & Deploy to Web S3 Bucket
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          aws s3 sync dist/ s3://${{ env.WEB_BUCKET }} --delete --exclude config.json --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp dist/index.html s3://${{ env.WEB_BUCKET }}/index.html --cache-control "no-cache,no-store,must-revalidate"
+          aws cloudfront create-invalidation --distribution-id ${{ env.CF_DIST_ID }} --paths "/index.html" "/config.json"
+
+      - name: Post-Deploy Smoke Test
+        run: |
+          pip install boto3 requests
+          python scripts/e2e_smoke.py --fast \
+            --api-url "${{ env.API_URL }}" \
+            --user "${{ secrets.DEMO_USER_EMAIL }}" \
+            --password "${{ secrets.DEMO_USER_PASSWORD }}"
+
+      - name: Publish Deployment Summary
+        run: |
+          echo "### 🚀 CloudTrain Production Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "- **CloudFront SPA URL:** [${{ env.CF_URL }}](${{ env.CF_URL }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Gateway URL:** ${{ env.API_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ECR Image Tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** \`prod\` (Zero-cost AWS Serverless)" >> $GITHUB_STEP_SUMMARY

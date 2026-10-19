@@ -1,0 +1,84 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Type environment name ('prod') to confirm destructive teardown"
+        required: true
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Teardown CloudTrain Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event.inputs.environment == 'prod'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clean Up Orphan EC2 Trainer Instances
+        run: |
+          pip install boto3
+          python scripts/cleanup_orphans.py --region "${{ vars.AWS_REGION || 'ap-south-1' }}" --env "prod"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      - name: Empty S3 Buckets Before Terraform Destroy
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=cloudtrain/prod/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION || 'ap-south-1' }}"
+
+          DATA_BUCKET=$(terraform output -raw data_bucket 2>/dev/null || echo "")
+          WEB_BUCKET=$(terraform output -raw web_bucket 2>/dev/null || echo "")
+
+          if [ -n "$DATA_BUCKET" ]; then
+            echo "Emptying data bucket $DATA_BUCKET..."
+            aws s3 rm "s3://$DATA_BUCKET" --recursive || true
+          fi
+
+          if [ -n "$WEB_BUCKET" ]; then
+            echo "Emptying web bucket $WEB_BUCKET..."
+            aws s3 rm "s3://$WEB_BUCKET" --recursive || true
+          fi
+
+      - name: Terraform Destroy
+        working-directory: infra
+        run: |
+          terraform destroy -auto-approve \
+            -var="env=prod" \
+            -var="region=${{ vars.AWS_REGION || 'ap-south-1' }}" \
+            -var="trainer_image_tag=latest" \
+            -var="ecr_repository_url=${{ vars.ECR_REPOSITORY_URL }}" \
+            -var="alert_email=${{ vars.ALERT_EMAIL }}" \
+            -var="monthly_budget_usd=${{ vars.MONTHLY_BUDGET_USD || 10 }}"
+
+      - name: Report Teardown Completion
+        run: |
+          echo "### 🗑️ CloudTrain Production Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "All compute, database, messaging, and storage resources have been deleted." >> $GITHUB_STEP_SUMMARY
+          echo "The bootstrap stack (state bucket, ECR, OIDC) remains intact for future deployments." >> $GITHUB_STEP_SUMMARY

@@ -111,7 +111,13 @@ destroy:
 panic:
 	@echo "🚨 PANIC: Terminating all trainer instances and disabling job queue..."
 	python scripts/cleanup_orphans.py
-	@echo "Disable SQS event source mapping manually or via AWS CLI"
+	@if [ -n "$$(aws lambda list-event-source-mappings --function-name cloudtrain-$${ENV:-prod}-job-launcher --query "EventSourceMappings[0].UUID" --output text 2>/dev/null)" ]; then \
+		UUID=$$(aws lambda list-event-source-mappings --function-name cloudtrain-$${ENV:-prod}-job-launcher --query "EventSourceMappings[0].UUID" --output text 2>/dev/null); \
+		if [ "$$UUID" != "None" ] && [ -n "$$UUID" ]; then \
+			echo "Disabling Event Source Mapping $$UUID..."; \
+			aws lambda update-event-source-mapping --uuid "$$UUID" --no-enabled || true; \
+		fi \
+	fi
 	@echo "🚨 Done. Check the AWS console to confirm."
 
 # ──────────────────────────────────────────────
