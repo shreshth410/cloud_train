@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CloudTrainStatusEvent",
+  "type": "object",
+  "required": ["job_id", "seq", "ts", "event", "status", "stage", "progress", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "type": "string",
+      "enum": ["STAGE", "PROGRESS", "METRICS", "UPLOADING", "SUCCEEDED", "FAILED"]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "QUEUED",
+        "PROVISIONING",
+        "RUNNING",
+        "UPLOADING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
+        "TIMED_OUT"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "BOOTSTRAP",
+        "DOWNLOADING",
+        "VALIDATING",
+        "PREPROCESSING",
+        "TRAINING",
+        "EVALUATING",
+        "EXPLAINING",
+        "UPLOADING",
+        "DONE"
+      ]
+    },
+    "progress": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "message": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metrics_summary": {
+          "type": "object"
+        },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "default": {}
+    }
+  }
+}

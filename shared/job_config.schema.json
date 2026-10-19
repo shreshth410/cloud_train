@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CloudTrainJobConfig",
+  "type": "object",
+  "required": ["name", "dataset_id", "target_column", "model"],
+  "additionalProperties": false,
+  "properties": {
+    "config_version": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "dataset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "task": {
+      "type": "string",
+      "enum": ["auto", "classification", "regression"],
+      "default": "auto"
+    },
+    "target_column": {
+      "type": "string",
+      "minLength": 1
+    },
+    "feature_columns": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "default": null
+    },
+    "model": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "logistic_regression",
+            "linear_regression",
+            "ridge",
+            "decision_tree",
+            "random_forest",
+            "xgboost",
+            "knn"
+          ]
+        },
+        "hyperparameters": {
+          "type": "object",
+          "default": {}
+        }
+      }
+    },
+    "preprocessing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numeric_impute": {
+          "type": "string",
+          "enum": ["mean", "median", "zero"],
+          "default": "median"
+        },
+        "categorical_impute": {
+          "type": "string",
+          "enum": ["most_frequent", "missing_label"],
+          "default": "most_frequent"
+        },
+        "scale_numeric": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_categories": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "default": 50
+        },
+        "drop_id_like": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "default": {}
+    },
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "test_size": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.4,
+          "default": 0.2
+        },
+        "stratify": {
+          "type": "boolean",
+          "default": true
+        },
+        "random_state": {
+          "type": "integer",
+          "default": 42
+        }
+      },
+      "default": {}
+    },
+    "cross_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "folds": {
+          "type": "integer",
+          "anyOf": [
+            {"const": 0},
+            {"minimum": 3, "maximum": 10}
+          ],
+          "default": 0
+        }
+      },
+      "default": {}
+    },
+    "compute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "type": "string",
+          "enum": ["small", "medium"],
+          "default": "small"
+        }
+      },
+      "default": {}
+    },
+    "max_runtime_minutes": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 60,
+      "default": 30
+    }
+  }
+}

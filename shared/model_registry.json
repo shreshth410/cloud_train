@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "logistic_regression",
+      "display_name": "Logistic Regression",
+      "description": "Linear model for classification with probabilistic outputs. Fast and interpretable baseline.",
+      "tasks": ["classification"],
+      "class_path": {
+        "classification": "sklearn.linear_model.LogisticRegression"
+      },
+      "fixed_params": {
+        "random_state": 42
+      },
+      "needs_scaling": true,
+      "supports_native_importance": true,
+      "hyperparameters": [
+        {
+          "name": "C",
+          "label": "Inverse Regularization Strength (C)",
+          "type": "float",
+          "scale": "log",
+          "min": 0.001,
+          "max": 100.0,
+          "default": 1.0,
+          "help": "Smaller values specify stronger regularization."
+        },
+        {
+          "name": "max_iter",
+          "label": "Max Iterations",
+          "type": "int",
+          "min": 100,
+          "max": 5000,
+          "default": 1000,
+          "step": 100,
+          "help": "Maximum number of iterations taken for the solvers to converge."
+        },
+        {
+          "name": "class_weight",
+          "label": "Class Weight",
+          "type": "enum",
+          "options": [null, "balanced"],
+          "default": null,
+          "nullable": true,
+          "help": "Weights associated with classes. Use 'balanced' for imbalanced datasets."
+        }
+      ]
+    },
+    {
+      "id": "linear_regression",
+      "display_name": "Linear Regression",
+      "description": "Ordinary least squares Linear Regression baseline model.",
+      "tasks": ["regression"],
+      "class_path": {
+        "regression": "sklearn.linear_model.LinearRegression"
+      },
+      "fixed_params": {},
+      "needs_scaling": true,
+      "supports_native_importance": true,
+      "hyperparameters": []
+    },
+    {
+      "id": "ridge",
+      "display_name": "Ridge Regression",
+      "description": "Linear least squares with L2 regularization to prevent overfitting.",
+      "tasks": ["regression"],
+      "class_path": {
+        "regression": "sklearn.linear_model.Ridge"
+      },
+      "fixed_params": {
+        "random_state": 42
+      },
+      "needs_scaling": true,
+      "supports_native_importance": true,
+      "hyperparameters": [
+        {
+          "name": "alpha",
+          "label": "Regularization Strength (alpha)",
+          "type": "float",
+          "scale": "log",
+          "min": 0.001,
+          "max": 1000.0,
+          "default": 1.0,
+          "help": "Regularization strength; larger values specify stronger regularization."
+        }
+      ]
+    },
+    {
+      "id": "decision_tree",
+      "display_name": "Decision Tree",
+      "description": "Non-parametric supervised learning method for classification and regression.",
+      "tasks": ["classification", "regression"],
+      "class_path": {
+        "classification": "sklearn.tree.DecisionTreeClassifier",
+        "regression": "sklearn.tree.DecisionTreeRegressor"
+      },
+      "fixed_params": {
+        "random_state": 42
+      },
+      "needs_scaling": false,
+      "supports_native_importance": true,
+      "hyperparameters": [
+        {
+          "name": "max_depth",
+          "label": "Max Depth",
+          "type": "int",
+          "min": 1,
+          "max": 50,
+          "default": 6,
+          "nullable": true,
+          "help": "The maximum depth of the tree."
+        },
+        {
+          "name": "min_samples_split",
+          "label": "Min Samples Split",
+          "type": "int",
+          "min": 2,
+          "max": 50,
+          "default": 2,
+          "help": "The minimum number of samples required to split an internal node."
+        },
+        {
+          "name": "min_samples_leaf",
+          "label": "Min Samples Leaf",
+          "type": "int",
+          "min": 1,
+          "max": 20,
+          "default": 1,
+          "help": "The minimum number of samples required to be at a leaf node."
+        },
+        {
+          "name": "criterion",
+          "label": "Criterion",
+          "type": "enum",
+          "options": ["gini", "entropy", "squared_error", "absolute_error"],
+          "default": null,
+          "nullable": true,
+          "help": "Function to measure split quality. Classification: gini, entropy. Regression: squared_error, absolute_error."
+        }
+      ]
+    },
+    {
+      "id": "random_forest",
+      "display_name": "Random Forest",
+      "description": "An ensemble of decision trees. Strong default for tabular data; robust to outliers.",
+      "tasks": ["classification", "regression"],
+      "class_path": {
+        "classification": "sklearn.ensemble.RandomForestClassifier",
+        "regression": "sklearn.ensemble.RandomForestRegressor"
+      },
+      "fixed_params": {
+        "n_jobs": -1,
+        "random_state": 42
+      },
+      "needs_scaling": false,
+      "supports_native_importance": true,
+      "hyperparameters": [
+        {
+          "name": "n_estimators",
+          "label": "Number of trees",
+          "type": "int",
+          "min": 10,
+          "max": 500,
+          "default": 100,
+          "step": 10,
+          "help": "More trees = better but slower."
+        },
+        {
+          "name": "max_depth",
+          "label": "Max depth",
+          "type": "int",
+          "min": 1,
+          "max": 50,
+          "default": null,
+          "nullable": true,
+          "help": "Maximum depth of each decision tree."
+        },
+        {
+          "name": "min_samples_leaf",
+          "label": "Min samples per leaf",
+          "type": "int",
+          "min": 1,
+          "max": 20,
+          "default": 1,
+          "help": "Minimum samples required at a leaf node."
+        },
+        {
+          "name": "max_features",
+          "label": "Features per split",
+          "type": "enum",
+          "options": ["sqrt", "log2", null],
+          "default": "sqrt",
+          "nullable": true,
+          "help": "Number of features to consider when looking for the best split."
+        }
+      ]
+    },
+    {
+      "id": "xgboost",
+      "display_name": "XGBoost",
+      "description": "Gradient boosted decision trees designed for speed and state-of-the-art performance.",
+      "tasks": ["classification", "regression"],
+      "class_path": {
+        "classification": "xgboost.XGBClassifier",
+        "regression": "xgboost.XGBRegressor"
+      },
+      "fixed_params": {
+        "tree_method": "hist",
+        "n_jobs": -1,
+        "random_state": 42
+      },
+      "needs_scaling": false,
+      "supports_native_importance": true,
+      "hyperparameters": [
+        {
+          "name": "n_estimators",
+          "label": "Number of Trees",
+          "type": "int",
+          "min": 10,
+          "max": 500,
+          "default": 200,
+          "step": 10,
+          "help": "Number of gradient boosted trees."
+        },
+        {
+          "name": "max_depth",
+          "label": "Max Depth",
+          "type": "int",
+          "min": 1,
+          "max": 12,
+          "default": 6,
+          "help": "Maximum tree depth for base learners."
+        },
+        {
+          "name": "learning_rate",
+          "label": "Learning Rate",
+          "type": "float",
+          "scale": "log",
+          "min": 0.01,
+          "max": 0.5,
+          "default": 0.1,
+          "help": "Boosting learning rate (eta)."
+        },
+        {
+          "name": "subsample",
+          "label": "Subsample Ratio",
+          "type": "float",
+          "min": 0.5,
+          "max": 1.0,
+          "default": 1.0,
+          "help": "Subsample ratio of the training instances."
+        },
+        {
+          "name": "colsample_bytree",
+          "label": "Colsample By Tree",
+          "type": "float",
+          "min": 0.5,
+          "max": 1.0,
+          "default": 1.0,
+          "help": "Subsample ratio of columns when constructing each tree."
+        }
+      ]
+    },
+    {
+      "id": "knn",
+      "display_name": "k-Nearest Neighbors",
+      "description": "Instance-based learning model that classifies or predicts based on closest neighbors.",
+      "tasks": ["classification", "regression"],
+      "class_path": {
+        "classification": "sklearn.neighbors.KNeighborsClassifier",
+        "regression": "sklearn.neighbors.KNeighborsRegressor"
+      },
+      "fixed_params": {},
+      "needs_scaling": true,
+      "supports_native_importance": false,
+      "hyperparameters": [
+        {
+          "name": "n_neighbors",
+          "label": "Number of Neighbors",
+          "type": "int",
+          "min": 1,
+          "max": 50,
+          "default": 5,
+          "help": "Number of neighbors to use by default for kneighbors queries."
+        },
+        {
+          "name": "weights",
+          "label": "Weight Function",
+          "type": "enum",
+          "options": ["uniform", "distance"],
+          "default": "uniform",
+          "help": "Weight function used in prediction."
+        }
+      ]
+    }
+  ]
+}
