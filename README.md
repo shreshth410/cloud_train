@@ -1,108 +1,202 @@
-# CloudTrain
+# CloudTrain — Zero-Cost Cloud & Local ML Training Platform
 
-> A no-code, cloud-based ML model training platform on AWS.
+> A no-code, cloud-native automated machine learning (AutoML) platform modeled after AWS SageMaker Canvas. Upload CSV datasets, configure features and hyperparameters through an interactive wizard, dispatch asynchronous training jobs, and download trained model bundles with rich evaluation metrics.
 
-## Overview
+---
 
-CloudTrain is a mini "SageMaker Canvas": a web app where a signed-in user uploads a CSV dataset, clicks through a wizard (target column → features → model → hyperparameters → compute size), presses **Train**, watches the job progress, and downloads the trained model with its metrics.
+## Architecture & Cloud Concepts
 
-## Architecture
+CloudTrain is architected around decoupled cloud computing patterns (IaaS, PaaS, and FaaS) designed to run within the **AWS Free Tier** or **100% locally with zero cloud costs** via embedded emulation.
 
-- **Auth:** AWS Cognito (sign-up/sign-in)
-- **Storage:** S3 (datasets, artifacts), DynamoDB (metadata)
-- **Compute:** On-demand EC2 instances running Docker containers
-- **Orchestration:** SQS queues with Lambda consumers
-- **Frontend:** React SPA served via CloudFront
-- **Infrastructure:** Terraform, deployed by GitHub Actions with OIDC
+| Cloud Service | Role in CloudTrain | Local Emulation (Zero-Cost) |
+| :--- | :--- | :--- |
+| **Amazon S3** | Object storage for raw datasets, model artifacts (`model.joblib`), evaluation metrics, and training logs | Moto S3 / Path-style bucket (`cloudtrain-local-data`) |
+| **Amazon DynamoDB** | NoSQL database for dataset metadata, job states, and atomic capacity slots (`__capacity__`) | Moto DynamoDB tables (`cloudtrain-local-jobs`, `cloudtrain-local-datasets`) |
+| **Amazon SQS** | Decoupled message queues for asynchronous job scheduling (`jobs-queue`) and real-time status events (`status-queue`) | Moto SQS queues with long-polling worker dispatcher |
+| **Amazon EC2 / Docker** | Isolated compute instances running containerized ML training pipelines (`scikit-learn`, `pandas`) | Local Docker containers (`cloudtrain-trainer`) or native Python processes |
+| **AWS Lambda / API Gateway** | Serverless REST API endpoints for user authentication, presigned URLs, quotas, and job controls | Python HTTP API Gateway translator (`backend/local_server.py`) or Nginx proxy |
+| **AWS Cognito** | JWT-based user identity, authentication, and quotas | Local guest bypass mode (`LOCAL_AUTH_BYPASS=1`) |
 
-## Quick Start
-
-### Prerequisites
-
-- Python 3.12+
-- Node.js 20 LTS
-- Docker ≥ 24
-- Terraform ≥ 1.10
-- AWS CLI v2
-
-### Local Development
-
-```bash
-make setup          # Install dependencies
-make lint           # Run linters
-make test           # Run tests
-make local-up       # Start local emulator stack
-make e2e-local      # Run end-to-end tests locally
-make local-down     # Stop local stack
+```
+                       ┌─────────────────────────────────────────┐
+                       │          React Frontend (Vite)          │
+                       │          http://localhost:5173          │
+                       └───────────────────┬─────────────────────┘
+                                           │
+                        REST API / Presigned POST Uploads
+                                           │
+                                           ▼
+                       ┌─────────────────────────────────────────┐
+                       │   API Gateway / Translator (:8000)      │
+                       └───────────┬─────────────────┬───────────┘
+                                   │                 │
+                           Write Metadata     Enqueue Job Message
+                                   │                 │
+                                   ▼                 ▼
+                         ┌────────────────┐   ┌────────────────┐
+                         │    DynamoDB    │   │ SQS Jobs Queue │
+                         └────────────────┘   └───────┬────────┘
+                                                      │ Worker Polls
+                                                      ▼
+                                           ┌──────────────────────┐
+                                           │ Atomic Slot Acquired │ (Max Concurrent: 2)
+                                           └──────────┬───────────┘
+                                                      │
+                                                      ▼
+                                           ┌──────────────────────┐
+                                           │ ML Trainer Runtime   │
+                                           │ (Docker / Subprocess)│
+                                           └──────────┬───────────┘
+                                                      │
+                                                      │ Streams progress & metrics
+                                                      ▼
+                                           ┌──────────────────────┐
+                                           │   SQS Status Queue   │
+                                           └──────────┬───────────┘
+                                                      │ Updates Job State
+                                                      ▼
+                                           ┌──────────────────────┐
+                                           │    DynamoDB Table    │
+                                           │  Status: SUCCEEDED   │
+                                           └──────────────────────┘
 ```
 
-### AWS Deployment
+---
 
-See `docs/RUNBOOK.md` for full deployment instructions.
+## Quick Start: Running Locally
 
-## Cost Notes
+You can run CloudTrain locally using either **Docker Compose** (recommended for presentations and containerized demos) or **Native Terminals** (fast Python & Vite processes).
 
-This project is designed to run within the AWS Free Plan. See `docs/COST.md` for detailed cost analysis.
+### Option 1: Docker Compose (Recommended)
 
-## Teardown
+Runs all four services (Frontend Nginx, Python Backend API, Moto Cloud Emulator, and ML Trainer) in isolated containers:
 
-```bash
-make destroy        # Destroy all AWS resources
-make panic          # Emergency: terminate all instances + disable queues
-```
+```powershell
+# 1. Start all containerized services
+docker compose -f docker-compose.local.yml up --build
 
-## Documentation
+# 2. Open the web application
+# 👉 http://localhost:5173
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [API Reference](docs/API.md)
-- [Cost Analysis](docs/COST.md)
-- [Runbook](docs/RUNBOOK.md)
-- [Demo Script](docs/DEMO_SCRIPT.md)
-- [Decisions Log](docs/DECISIONS.md)
-
-## License
-
-This project is for educational purposes as part of a cloud computing course.
-
-### Run the whole application with Docker Desktop
-
-From the repository root (PowerShell or a terminal):
-
-```sh
-docker compose -f docker-compose.local.yml up --build -d
-```
-
-Open **http://localhost:5173** and upload `samples/iris.csv`. Wait for READY,
-open the training wizard, choose `target` and Random Forest, then train.
-For regression, use `samples/diabetes.csv` with Ridge. Results include metrics,
-logs and downloadable model files. Each job runs in its own trainer container.
-
-The stack includes the built React website served by nginx, the Python API and
-queue dispatcher, Moto (S3/SQS/DynamoDB emulation), and the trainer image. It
-requires no AWS account or LocalStack token. The website uses `/api` through
-nginx; signed uploads and downloads use `http://localhost:4566`. All published
-ports bind to this computer only. Local authentication is a development bypass;
-use the Terraform/Cognito deployment for public access.
-
-Moto data is in memory and is lost when the emulator restarts. Download wanted
-models before stopping. The backend mounts Docker's socket to launch trainers.
-The old LocalStack volume is not removed by this configuration.
-
-```sh
-# Inspect services and errors
-docker compose -f docker-compose.local.yml ps
-docker compose -f docker-compose.local.yml logs --tail=100 backend emulator
-# Test real HTTP uploads, profiling, classification/regression, logs and downloads
-python scripts/e2e_docker.py
-# Stop the local services
+# 3. When finished, shut down containers
 docker compose -f docker-compose.local.yml down
 ```
 
-The HTTP smoke test needs `requests` installed in the selected Python environment
-(`python -m pip install requests`). The existing `e2e_smoke.py --local` is an
-in-process mock test; it does not test the Docker network or browser upload URL.
+---
 
-If you still see “Failed to fetch”, rebuild with the command above, reload the
-page, and check that frontend/backend/emulator are healthy. The API must be
-reachable at http://localhost:5173/api/models. Close an old host development
-server if Docker reports port 5173, 8000, or 4566 already in use.
+### Option 2: Native Terminals (Direct Python & Node)
+
+If you prefer running directly in separate terminal tabs with live logs:
+
+#### **Terminal 1: Backend & Cloud Emulator**
+```powershell
+cd d:\codes\ccd_project
+.\.venv\Scripts\python backend/local_server.py
+```
+> Starts the embedded Moto cloud emulator (S3, DynamoDB, SQS on port `4566`), auto-provisions buckets/tables, and boots the CloudTrain API Gateway on `http://localhost:8000`.
+
+#### **Terminal 2: Frontend Dev Server**
+```powershell
+cd d:\codes\ccd_project\frontend
+npm run dev
+```
+> Boots Vite with Hot Module Replacement on `http://localhost:5173`.
+
+---
+
+## Step-by-Step Presentation & Demo Flow
+
+### 1. Upload & Profile a Dataset
+1. Navigate to **Datasets** (`http://localhost:5173/datasets`).
+2. Click **Upload Dataset** and select [samples/iris.csv](samples/iris.csv) or [samples/diabetes.csv](samples/diabetes.csv).
+3. **What happens under the hood:**
+   - The browser requests an S3 **Presigned POST URL** from the backend.
+   - The CSV is streamed directly to S3 (`cloudtrain-local-data`).
+   - S3 triggers an asynchronous profiler that scans column types, missing value percentages, distributions, and generates summary statistics.
+   - The dataset status transitions from `PENDING_UPLOAD` ➔ `PROCESSING` ➔ `READY`.
+
+### 2. Configure & Train an ML Model
+1. Navigate to **Train Model** (`http://localhost:5173/train`).
+2. **Step 1 — Dataset:** Select your uploaded dataset (`iris.csv`).
+3. **Step 2 — Target & Features:** Select target column (`target`), select feature columns.
+4. **Step 3 — Model Selection:** Choose an algorithm:
+   - **Classification:** Random Forest, Logistic Regression, Support Vector Machine (SVC), Decision Tree.
+   - **Regression:** Random Forest Regressor, Ridge Regression, Linear Regression.
+5. **Step 4 — Hyperparameters:** Configure estimators, max depth, learning rate, and cross-validation folds.
+6. Click **Start Training**.
+
+### 3. Asynchronous Job Execution & Concurrency
+- The API Gateway responds with `202 Accepted` in milliseconds and dispatches a message into the **SQS Jobs Queue**.
+- The worker verifies available capacity in DynamoDB (`__capacity__`, max 2 concurrent instances).
+- The compute backend launches the training pipeline.
+- Real-time progress is published to the **SQS Status Queue**:
+  `QUEUED` ➔ `PROVISIONING` ➔ `RUNNING (5% Bootstrap ➔ 10% Downloading ➔ 50% Fitting ➔ 90% Evaluating)` ➔ `SUCCEEDED (100%)`.
+- If multiple jobs are submitted simultaneously, excess jobs wait safely in SQS and automatically begin execution when a running job finishes.
+
+### 4. Inspect Results & Download Model
+1. Open the job details page (`/jobs/{id}`).
+2. Inspect:
+   - **Evaluation Metrics:** Accuracy, F1 Score, Precision, Recall, Confusion Matrix, and ROC Curves.
+   - **Feature Importance:** Top predictive features ranked by importance.
+   - **Live Training Logs:** Real-time log stream stored in S3 (`logs.txt`).
+   - **Artifact Download:** Download the portable `model.joblib` artifact.
+
+---
+
+## Repository Structure
+
+```
+ccd_project/
+├── backend/                  # Python API Gateway & Lambda Services
+│   ├── api/                  # REST API handlers (routes for /datasets, /jobs, /models, /me)
+│   ├── dataset_profiler/     # SQS consumer that auto-profiles uploaded CSVs
+│   ├── job_launcher/         # SQS consumer that handles capacity slots & compute launches
+│   ├── status_updater/       # SQS consumer that writes state transitions to DynamoDB
+│   ├── local_server.py       # Local development server with embedded Moto emulator
+│   └── Dockerfile.local      # Container definition for local backend & emulator
+├── frontend/                 # React 18 + TypeScript + Vite SPA
+│   ├── src/pages/            # Dashboard, Datasets, Wizard, Jobs, JobDetail
+│   ├── src/lib/api.ts        # Typed API client, presigned S3 upload handler
+│   ├── nginx.local.conf      # Reverse proxy configuration for Docker container
+│   └── Dockerfile            # Multi-stage production build container
+├── trainer/                  # Standalone ML training pipeline container
+│   ├── cloudtrain_trainer/   # Scikit-learn models, preprocessing, metrics & S3 uploader
+│   └── Dockerfile            # Hardened non-root training image
+├── infra/                    # Terraform configurations for production AWS deployment
+│   ├── modules/              # s3, dynamodb, sqs, lambda, ec2, cognito, cloudfront
+│   └── environments/         # dev / prod variables
+├── samples/                  # Sample CSVs (iris.csv, diabetes.csv)
+├── scripts/                  # Bootstrap and testing scripts
+└── docker-compose.local.yml  # Multi-container local orchestration
+```
+
+---
+
+## Production AWS Deployment (Terraform)
+
+For full deployment to real AWS infrastructure:
+
+```bash
+# 1. Authenticate with AWS CLI
+aws configure
+
+# 2. Initialize and deploy infrastructure via Terraform
+cd infra/environments/dev
+terraform init
+terraform plan
+terraform apply
+```
+
+To tear down all cloud infrastructure and prevent any unexpected charges:
+```bash
+terraform destroy
+```
+
+---
+
+## Coursework & Academic Attribution
+
+This project was built for educational purposes as part of the **Cloud Computing (CCD)** curriculum to demonstrate:
+- **IaaS vs. PaaS vs. FaaS:** Combining containerized compute (EC2/Docker), managed NoSQL and object stores (DynamoDB/S3), and serverless event-driven dispatchers (Lambda/SQS).
+- **FinOps & Resource Limiting:** Enforcing strict concurrency quotas to prevent cloud cost overruns.
+- **Microservices & Queue Decoupling:** Event-driven architecture where HTTP APIs never block on heavy ML computational workloads.
