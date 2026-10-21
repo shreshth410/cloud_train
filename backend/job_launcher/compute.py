@@ -7,6 +7,7 @@ LocalDockerBackend for local workstation / emulator execution.
 import base64
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -233,36 +234,67 @@ class LocalDockerBackend:
         instance_id = f"local-{job_id}"
         started_at = datetime.now(UTC).isoformat()
 
-        cmd = [
-            "docker",
-            "run",
-            "-d",
-            "--rm",
-            "--name",
-            container_name,
-            "-e",
-            f"JOB_ID={job_id}",
-            "-e",
-            f"USER_ID={user_id}",
-            "-e",
-            f"DATA_BUCKET={self.data_bucket}",
-            "-e",
-            f"STATUS_QUEUE_URL={self.status_queue_url}",
-            "-e",
-            f"MAX_RUNTIME_SECONDS={int(max_runtime_mins * 60)}",
-        ]
-        if self.s3_endpoint_url:
-            cmd.extend(["-e", f"S3_ENDPOINT_URL={self.s3_endpoint_url}"])
-        if self.sqs_endpoint_url:
-            cmd.extend(["-e", f"SQS_ENDPOINT_URL={self.sqs_endpoint_url}"])
-
-        cmd.append(self.image)
-
+        has_docker_image = False
         try:
-            logger.info(f"Starting local container for job {job_id}: {' '.join(cmd)}")
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            logger.warning(f"Could not spawn local docker process ({e}); running in mock mode.")
+            check = subprocess.run(
+                ["docker", "image", "inspect", self.image],
+                capture_output=True,
+                timeout=2,
+            )
+            if check.returncode == 0:
+                has_docker_image = True
+        except Exception:
+            has_docker_image = False
+
+        if has_docker_image:
+            cmd = [
+                "docker",
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                container_name,
+                "-e",
+                f"JOB_ID={job_id}",
+                "-e",
+                f"USER_ID={user_id}",
+                "-e",
+                f"DATA_BUCKET={self.data_bucket}",
+                "-e",
+                f"STATUS_QUEUE_URL={self.status_queue_url}",
+                "-e",
+                f"MAX_RUNTIME_SECONDS={int(max_runtime_mins * 60)}",
+            ]
+            if self.s3_endpoint_url:
+                cmd.extend(["-e", f"S3_ENDPOINT_URL={self.s3_endpoint_url}"])
+            if self.sqs_endpoint_url:
+                cmd.extend(["-e", f"SQS_ENDPOINT_URL={self.sqs_endpoint_url}"])
+
+            cmd.append(self.image)
+
+            try:
+                logger.info(f"Starting local container for job {job_id}: {' '.join(cmd)}")
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                logger.warning(f"Could not spawn local docker process ({e}); running in fallback mode.")
+        else:
+            logger.info(
+                f"Docker image {self.image} not cached; running local Python trainer process for job {job_id}"
+            )
+            env = os.environ.copy()
+            env.update({
+                "JOB_ID": job_id,
+                "USER_ID": user_id,
+                "DATA_BUCKET": self.data_bucket,
+                "STATUS_QUEUE_URL": self.status_queue_url,
+                "MAX_RUNTIME_SECONDS": str(int(max_runtime_mins * 60)),
+            })
+            if self.s3_endpoint_url:
+                env["S3_ENDPOINT_URL"] = self.s3_endpoint_url
+            if self.sqs_endpoint_url:
+                env["SQS_ENDPOINT_URL"] = self.sqs_endpoint_url
+
+            subprocess.Popen([sys.executable, "-m", "cloudtrain_trainer.main"], env=env)
 
         return LaunchResult(
             instance_id=instance_id,
