@@ -162,7 +162,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         continue-on-error: true
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
