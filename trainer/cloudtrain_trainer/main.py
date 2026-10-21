@@ -281,7 +281,9 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    log_path = Path(f"/tmp/cloudtrain-{args.job_id}.log")
+    import tempfile
+
+    log_path = Path(tempfile.gettempdir()) / f"cloudtrain-{args.job_id}.log"
     log_handler = logging.FileHandler(log_path, encoding="utf-8")
     log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
     logging.getLogger().addHandler(log_handler)

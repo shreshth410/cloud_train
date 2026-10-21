@@ -10,6 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 import boto3
@@ -234,19 +235,37 @@ class LocalDockerBackend:
         instance_id = f"local-{job_id}"
         started_at = datetime.now(UTC).isoformat()
 
-        has_docker_image = False
-        try:
-            check = subprocess.run(
-                ["docker", "image", "inspect", self.image],
-                capture_output=True,
-                timeout=2,
-            )
-            if check.returncode == 0:
-                has_docker_image = True
-        except Exception:
-            has_docker_image = False
+        use_docker = (os.getenv("LOCAL_REQUIRE_DOCKER") == "1")
 
-        if has_docker_image:
+        has_docker_image = False
+        if use_docker:
+            try:
+                check = subprocess.run(
+                    ["docker", "image", "inspect", self.image],
+                    capture_output=True,
+                    timeout=2,
+                )
+                if check.returncode == 0:
+                    has_docker_image = True
+            except Exception:
+                has_docker_image = False
+
+        if use_docker and has_docker_image:
+            s3_url = self.s3_endpoint_url
+            sqs_url = self.sqs_endpoint_url
+            status_url = self.status_queue_url
+            network = os.getenv("LOCAL_DOCKER_NETWORK", "host")
+
+            # On Windows Docker Desktop, containers access host loopback via host.docker.internal
+            if sys.platform == "win32" and network == "host":
+                network = "bridge"
+                if s3_url and "127.0.0.1" in s3_url:
+                    s3_url = s3_url.replace("127.0.0.1", "host.docker.internal")
+                if sqs_url and "127.0.0.1" in sqs_url:
+                    sqs_url = sqs_url.replace("127.0.0.1", "host.docker.internal")
+                if status_url and "127.0.0.1" in status_url:
+                    status_url = status_url.replace("127.0.0.1", "host.docker.internal")
+
             cmd = [
                 "docker",
                 "run",
@@ -261,16 +280,16 @@ class LocalDockerBackend:
                 "-e",
                 f"DATA_BUCKET={self.data_bucket}",
                 "-e",
-                f"STATUS_QUEUE_URL={self.status_queue_url}",
+                f"STATUS_QUEUE_URL={status_url}",
                 "-e",
                 f"MAX_RUNTIME_SECONDS={int(max_runtime_mins * 60)}",
             ]
-            if self.s3_endpoint_url:
-                cmd.extend(["-e", f"S3_ENDPOINT_URL={self.s3_endpoint_url}"])
-            if self.sqs_endpoint_url:
-                cmd.extend(["-e", f"SQS_ENDPOINT_URL={self.sqs_endpoint_url}"])
+            if s3_url:
+                cmd.extend(["-e", f"S3_ENDPOINT_URL={s3_url}"])
+            if sqs_url:
+                cmd.extend(["-e", f"SQS_ENDPOINT_URL={sqs_url}"])
 
-            cmd.extend(["--network", os.getenv("LOCAL_DOCKER_NETWORK", "host")])
+            cmd.extend(["--network", network])
             for name in ("AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
                 cmd.extend(["-e", f"{name}={os.getenv(name, 'test' if 'KEY' in name else 'ap-south-1')}"])
             cmd.append(self.image)
@@ -280,13 +299,16 @@ class LocalDockerBackend:
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
             except Exception as e:
                 raise NonRetryableLaunchError(f"Could not start trainer container: {e}") from e
+        elif use_docker and not has_docker_image:
+            raise NonRetryableLaunchError(
+                f"Trainer image {self.image} is unavailable; build the trainer service first."
+            )
         else:
-            if os.getenv("LOCAL_REQUIRE_DOCKER") == "1":
-                raise NonRetryableLaunchError(
-                    f"Trainer image {self.image} is unavailable; build the trainer service first."
-                )
-            logger.info(f"Docker image {self.image} not cached; running local Python trainer process for job {job_id}")
+            logger.info(f"Running local Python trainer process for job {job_id}")
             env = os.environ.copy()
+            trainer_dir = str(Path(__file__).resolve().parent.parent.parent / "trainer")
+            existing_pp = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = f"{trainer_dir}{os.pathsep}{existing_pp}" if existing_pp else trainer_dir
             env.update(
                 {
                     "JOB_ID": job_id,
@@ -294,6 +316,10 @@ class LocalDockerBackend:
                     "DATA_BUCKET": self.data_bucket,
                     "STATUS_QUEUE_URL": self.status_queue_url,
                     "MAX_RUNTIME_SECONDS": str(int(max_runtime_mins * 60)),
+                    "AWS_DEFAULT_REGION": os.getenv("AWS_DEFAULT_REGION", "ap-south-1"),
+                    "AWS_REGION": os.getenv("AWS_REGION", "ap-south-1"),
+                    "AWS_ACCESS_KEY_ID": "test",
+                    "AWS_SECRET_ACCESS_KEY": "test",
                 }
             )
             if self.s3_endpoint_url:
@@ -301,7 +327,7 @@ class LocalDockerBackend:
             if self.sqs_endpoint_url:
                 env["SQS_ENDPOINT_URL"] = self.sqs_endpoint_url
 
-            subprocess.Popen([sys.executable, "-m", "cloudtrain_trainer.main"], env=env)
+            subprocess.Popen([sys.executable, "-m", "cloudtrain_trainer.main"], env=env, cwd=trainer_dir)
 
         return LaunchResult(
             instance_id=instance_id,
