@@ -225,9 +225,16 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
         # Routes: /datasets
         # ──────────────────────────────────────────────
         if http_method == "POST" and path == "/datasets":
-            filename = (body.get("name") or "").strip()
-            if not filename.lower().endswith(".csv") or len(filename) > 255:
-                return make_error_response(400, "INVALID_FILENAME", "Dataset filename must end with .csv")
+            req_filename = (body.get("filename") or body.get("name") or "").strip()
+            display_name = (body.get("name") or body.get("filename") or "").strip()
+
+            if not req_filename.lower().endswith(".csv"):
+                if not display_name.lower().endswith(".csv"):
+                    return make_error_response(400, "INVALID_FILENAME", "Dataset filename must end with .csv")
+                req_filename = display_name
+
+            if len(display_name) > 255:
+                return make_error_response(400, "INVALID_FILENAME", "Dataset name too long (max 255 chars)")
 
             ds_used = count_user_datasets(datasets_table, user_id)
             if ds_used >= max_datasets:
@@ -250,7 +257,8 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
             record = {
                 "dataset_id": dataset_id,
                 "user_id": user_id,
-                "name": filename,
+                "name": display_name,
+                "filename": req_filename,
                 "s3_key": s3_key,
                 "size_bytes": 0,
                 "status": "PENDING_UPLOAD",

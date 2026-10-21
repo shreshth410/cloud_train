@@ -2,9 +2,9 @@
 """Local HTTP API Server & Event Dispatcher for CloudTrain.
 
 Listens on http://localhost:8000. Translates HTTP requests to API Gateway v2
-events and routes them to backend/api/main.py:lambda_handler. Also runs a
-background thread polling local SQS queues (LocalStack) to invoke job_launcher
-and status_updater.
+events and routes them to backend/api/main.py:lambda_handler. Also starts
+an embedded Moto cloud emulator on port 4566 (if not running) and polls local
+queues to invoke job_launcher, dataset_profiler, and status_updater.
 """
 
 import contextlib
@@ -22,31 +22,35 @@ from typing import Any
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR / "backend"))
 sys.path.insert(0, str(ROOT_DIR / "trainer"))
+sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
-# Default environment configuration for LocalStack
+# Default environment configuration for LocalStack / Moto
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
 os.environ.setdefault("AWS_REGION", "ap-south-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
-os.environ.setdefault("AWS_ENDPOINT_URL", "http://localhost:4566")
-os.environ.setdefault("S3_ENDPOINT_URL", "http://localhost:4566")
-os.environ.setdefault("DDB_ENDPOINT_URL", "http://localhost:4566")
-os.environ.setdefault("SQS_ENDPOINT_URL", "http://localhost:4566")
+os.environ.setdefault("AWS_ENDPOINT_URL", "http://127.0.0.1:4566")
+os.environ.setdefault("S3_ENDPOINT_URL", "http://127.0.0.1:4566")
+os.environ.setdefault("DDB_ENDPOINT_URL", "http://127.0.0.1:4566")
+os.environ.setdefault("SQS_ENDPOINT_URL", "http://127.0.0.1:4566")
 os.environ.setdefault("ENV", "local")
 os.environ.setdefault("LOCAL_AUTH_BYPASS", "1")
 os.environ.setdefault("COMPUTE_BACKEND", "local")
 os.environ.setdefault("DATA_BUCKET", "cloudtrain-local-data")
 os.environ.setdefault("JOBS_TABLE", "cloudtrain-local-jobs")
 os.environ.setdefault("DATASETS_TABLE", "cloudtrain-local-datasets")
-os.environ.setdefault("JOBS_QUEUE_URL", "http://localhost:4566/000000000000/cloudtrain-local-jobs")
-os.environ.setdefault("STATUS_QUEUE_URL", "http://localhost:4566/000000000000/cloudtrain-local-status")
+os.environ.setdefault("JOBS_QUEUE_URL", "http://127.0.0.1:4566/000000000000/cloudtrain-local-jobs")
+os.environ.setdefault("STATUS_QUEUE_URL", "http://127.0.0.1:4566/000000000000/cloudtrain-local-status")
 os.environ.setdefault("TRAINER_IMAGE_URI", "cloudtrain-trainer:latest")
 os.environ.setdefault("MAX_CONCURRENT_INSTANCES", "2")
 os.environ.setdefault("CORS_ALLOW_ORIGIN", "*")
 
 import boto3  # noqa: E402
+from bootstrap_local import bootstrap_local_resources  # noqa: E402
+from moto.server import ThreadedMotoServer  # noqa: E402
 
 from api.main import lambda_handler as api_handler  # noqa: E402
+from dataset_profiler.main import lambda_handler as profiler_handler  # noqa: E402
 from job_launcher.main import lambda_handler as launcher_handler  # noqa: E402
 from status_updater.main import lambda_handler as status_handler  # noqa: E402
 
@@ -150,7 +154,6 @@ class CloudTrainHttpHandler(BaseHTTPRequestHandler):
             self.wfile.write(err_payload)
 
     def log_message(self, msg_format: str, *args: Any) -> None:
-        # Clean logging
         print(f"[API] {self.command} {self.path} - {args[1] if len(args) > 1 else ''}")
 
 
@@ -159,12 +162,25 @@ def background_queue_worker() -> None:
     sqs = boto3.client(
         "sqs",
         region_name="ap-south-1",
-        endpoint_url=os.getenv("SQS_ENDPOINT_URL", "http://localhost:4566"),
+        endpoint_url=os.getenv("SQS_ENDPOINT_URL", "http://127.0.0.1:4566"),
     )
+    ddb = boto3.resource(
+        "dynamodb",
+        region_name="ap-south-1",
+        endpoint_url=os.getenv("DDB_ENDPOINT_URL", "http://127.0.0.1:4566"),
+    )
+    s3 = boto3.client(
+        "s3",
+        region_name="ap-south-1",
+        endpoint_url=os.getenv("S3_ENDPOINT_URL", "http://127.0.0.1:4566"),
+    )
+
     jobs_url = os.getenv("JOBS_QUEUE_URL", "")
     status_url = os.getenv("STATUS_QUEUE_URL", "")
+    data_bucket = os.getenv("DATA_BUCKET", "cloudtrain-local-data")
+    ds_table = os.getenv("DATASETS_TABLE", "cloudtrain-local-datasets")
 
-    print("[Worker] Started background SQS queue dispatcher against LocalStack...")
+    print("[Worker] Background worker started for SQS queues and S3 uploads...")
 
     while True:
         try:
@@ -221,21 +237,73 @@ def background_queue_worker() -> None:
                                 ReceiptHandle=m["ReceiptHandle"],
                             )
 
+            # 3. Check for newly uploaded S3 datasets needing profiling
+            try:
+                table = ddb.Table(ds_table)
+                scan_res = table.scan()
+                for item in scan_res.get("Items", []):
+                    if item.get("status") == "PENDING_UPLOAD":
+                        s3_key = item.get("s3_key")
+                        if s3_key:
+                            try:
+                                s3.head_object(Bucket=data_bucket, Key=s3_key)
+                                print(
+                                    f"[Worker] Detected uploaded dataset at s3://{data_bucket}/{s3_key}; profiling..."
+                                )
+                                profiler_handler(
+                                    {
+                                        "Records": [
+                                            {
+                                                "s3": {
+                                                    "bucket": {"name": data_bucket},
+                                                    "object": {"key": s3_key},
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    None,
+                                )
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
         except Exception:
-            # SQS queue might not be ready yet
-            time.sleep(3)
+            time.sleep(2)
 
 
 def start_server(port: int = 8000) -> None:
+    # 1. Start embedded Moto cloud emulator if port 4566 is not running
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    is_open = s.connect_ex(("127.0.0.1", 4566)) == 0
+    s.close()
+
+    if not is_open:
+        print("[Cloud Emulator] Starting embedded Moto server on http://127.0.0.1:4566...")
+        moto_server = ThreadedMotoServer(ip_address="127.0.0.1", port=4566)
+        moto_server.start()
+        time.sleep(1)
+
+    # 2. Bootstrap local S3 buckets, SQS queues, and DynamoDB tables
+    print("[Bootstrap] Initializing S3 bucket, DynamoDB tables, and SQS queues...")
+    try:
+        bootstrap_local_resources("http://127.0.0.1:4566", "ap-south-1")
+    except Exception as e:
+        print(f"[Bootstrap] Notice: {e}")
+
+    # 3. Start background worker thread
     worker_thread = threading.Thread(target=background_queue_worker, daemon=True)
     worker_thread.start()
 
+    # 4. Start HTTP Server
     server_address = ("", port)
     httpd = HTTPServer(server_address, CloudTrainHttpHandler)
     print("\n=======================================================")
-    print(f"🚀 CloudTrain Local Server running at http://localhost:{port}")
-    print(f"   Connected to LocalStack at {os.getenv('AWS_ENDPOINT_URL')}")
-    print("   Auth Bypass enabled: local guest requests accepted")
+    print(f"[START] CloudTrain Local Server running at http://localhost:{port}")
+    print("   Cloud Emulator (S3, DDB, SQS): http://127.0.0.1:4566")
+    print("   Auth Bypass: Active (local guest requests accepted)")
     print("=======================================================\n")
     try:
         httpd.serve_forever()
