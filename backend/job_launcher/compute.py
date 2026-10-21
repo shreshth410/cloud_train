@@ -270,25 +270,32 @@ class LocalDockerBackend:
             if self.sqs_endpoint_url:
                 cmd.extend(["-e", f"SQS_ENDPOINT_URL={self.sqs_endpoint_url}"])
 
+            cmd.extend(["--network", os.getenv("LOCAL_DOCKER_NETWORK", "host")])
+            for name in ("AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+                cmd.extend(["-e", f"{name}={os.getenv(name, 'test' if 'KEY' in name else 'ap-south-1')}"])
             cmd.append(self.image)
 
             try:
                 logger.info(f"Starting local container for job {job_id}: {' '.join(cmd)}")
-                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
             except Exception as e:
-                logger.warning(f"Could not spawn local docker process ({e}); running in fallback mode.")
+                raise NonRetryableLaunchError(f"Could not start trainer container: {e}") from e
         else:
-            logger.info(
-                f"Docker image {self.image} not cached; running local Python trainer process for job {job_id}"
-            )
+            if os.getenv("LOCAL_REQUIRE_DOCKER") == "1":
+                raise NonRetryableLaunchError(
+                    f"Trainer image {self.image} is unavailable; build the trainer service first."
+                )
+            logger.info(f"Docker image {self.image} not cached; running local Python trainer process for job {job_id}")
             env = os.environ.copy()
-            env.update({
-                "JOB_ID": job_id,
-                "USER_ID": user_id,
-                "DATA_BUCKET": self.data_bucket,
-                "STATUS_QUEUE_URL": self.status_queue_url,
-                "MAX_RUNTIME_SECONDS": str(int(max_runtime_mins * 60)),
-            })
+            env.update(
+                {
+                    "JOB_ID": job_id,
+                    "USER_ID": user_id,
+                    "DATA_BUCKET": self.data_bucket,
+                    "STATUS_QUEUE_URL": self.status_queue_url,
+                    "MAX_RUNTIME_SECONDS": str(int(max_runtime_mins * 60)),
+                }
+            )
             if self.s3_endpoint_url:
                 env["S3_ENDPOINT_URL"] = self.s3_endpoint_url
             if self.sqs_endpoint_url:

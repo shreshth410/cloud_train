@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import re
+import subprocess
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -57,8 +58,8 @@ def make_cors_headers() -> dict[str, str]:
     return {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, x-user-sub, sub",
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, x-user-sub, x-user-email, sub, *",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Max-Age": "3000",
     }
 
@@ -271,6 +272,8 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
                 201,
                 {
                     "dataset_id": dataset_id,
+                    "url": upload_data["url"],
+                    "fields": upload_data["fields"],
                     "upload": {
                         "url": upload_data["url"],
                         "fields": upload_data["fields"],
@@ -524,8 +527,9 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
                     instance_id = job.get("instance_id")
                     if instance_id:
                         try:
-                            ec2 = boto3.client("ec2")
-                            ec2.terminate_instances(InstanceIds=[instance_id])
+                            from job_launcher.compute import get_compute_backend
+
+                            get_compute_backend().terminate(instance_id)
                         except Exception as e:
                             logger.warning(f"Failed to terminate instance {instance_id}: {e}")
 
@@ -536,6 +540,27 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
 
             # 4. GET /jobs/{id}/logs
             if action == "logs" and http_method == "GET":
+                if os.getenv("ENV") == "local" and job.get("instance_id", "").startswith("local-"):
+                    try:
+                        output = subprocess.run(
+                            ["docker", "logs", "--tail", "1000", f"trainer-{job_id}"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                            check=True,
+                        )
+                        return make_response(
+                            200,
+                            {
+                                "lines": [
+                                    {"ts": 0, "text": line} for line in (output.stdout + output.stderr).splitlines()
+                                ],
+                                "next": None,
+                                "source": "docker",
+                            },
+                        )
+                    except (OSError, subprocess.SubprocessError):
+                        pass  # Finished containers are removed; use archived S3 logs below.
                 next_token = query_params.get("next")
                 logs_client = boto3.client("logs")
                 lines: list[dict[str, Any]] = []

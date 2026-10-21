@@ -37,9 +37,9 @@ export const Datasets: React.FC = () => {
     queryFn: fetchDatasets,
     refetchInterval: (query) => {
       const busy = query.state.data?.some(
-        (d) => d.status === "UPLOADING" || d.status === "PROFILING"
+        (d) => d.status === "UPLOADING" || d.status === "PROFILING" || d.status === "PENDING_UPLOAD"
       );
-      return busy ? 3000 : 15000;
+      return busy ? 2000 : 15000;
     },
   });
 

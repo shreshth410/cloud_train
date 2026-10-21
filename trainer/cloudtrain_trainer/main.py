@@ -11,6 +11,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import boto3
 import numpy as np
 from sklearn.model_selection import KFold, StratifiedKFold, cross_validate, train_test_split
 from sklearn.pipeline import Pipeline
@@ -280,19 +281,39 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    exit_code = run_pipeline(
-        user_id=args.user_id,
-        job_id=args.job_id,
-        bucket_name=args.data_bucket,
-        status_queue_url=args.status_queue_url,
-        s3_endpoint_url=args.s3_endpoint_url,
-        sqs_endpoint_url=args.sqs_endpoint_url,
-        region=args.region,
-        max_runtime_seconds=args.max_runtime_seconds,
-        local_config_path=args.config,
-        local_csv_path=args.data,
-        local_output_dir=args.output_dir,
-    )
+    log_path = Path(f"/tmp/cloudtrain-{args.job_id}.log")
+    log_handler = logging.FileHandler(log_path, encoding="utf-8")
+    log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    logging.getLogger().addHandler(log_handler)
+    try:
+        exit_code = run_pipeline(
+            user_id=args.user_id,
+            job_id=args.job_id,
+            bucket_name=args.data_bucket,
+            status_queue_url=args.status_queue_url,
+            s3_endpoint_url=args.s3_endpoint_url,
+            sqs_endpoint_url=args.sqs_endpoint_url,
+            region=args.region,
+            max_runtime_seconds=args.max_runtime_seconds,
+            local_config_path=args.config,
+            local_csv_path=args.data,
+            local_output_dir=args.output_dir,
+        )
+    finally:
+        logging.getLogger().removeHandler(log_handler)
+        log_handler.close()
+        if args.data_bucket:
+            try:
+                s3 = boto3.client("s3", endpoint_url=args.s3_endpoint_url, region_name=args.region)
+                for suffix in ("logs.txt", "artifacts/logs.txt"):
+                    s3.upload_file(
+                        str(log_path),
+                        args.data_bucket,
+                        f"jobs/{args.user_id}/{args.job_id}/{suffix}",
+                        ExtraArgs={"ContentType": "text/plain", "ServerSideEncryption": "AES256"},
+                    )
+            except Exception:
+                logging.exception("Could not upload training logs")
     sys.exit(exit_code)
 
 

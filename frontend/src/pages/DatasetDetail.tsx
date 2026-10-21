@@ -25,7 +25,7 @@ export const DatasetDetail: React.FC = () => {
     enabled: !!id,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "UPLOADING" || status === "PROFILING" ? 3000 : false;
+      return status === "PENDING_UPLOAD" || status === "UPLOADING" || status === "PROFILING" ? 3000 : false;
     },
   });
 
@@ -141,7 +141,7 @@ export const DatasetDetail: React.FC = () => {
       </div>
 
       {/* Profiling status alert if still processing */}
-      {(dataset.status === "UPLOADING" || dataset.status === "PROFILING") && (
+      {(dataset.status === "PENDING_UPLOAD" || status === "UPLOADING" || dataset.status === "PROFILING") && (
         <div className="p-5 rounded-2xl glass-panel border border-cyan-800/60 flex items-center gap-3 text-cyan-300">
           <div className="w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
           <div>

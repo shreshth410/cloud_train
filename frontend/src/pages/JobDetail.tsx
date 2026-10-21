@@ -402,7 +402,7 @@ export const JobDetail: React.FC = () => {
                 <div className="p-4 rounded-xl glass-card">
                   <span className="text-xs text-slate-400 uppercase">ROC AUC</span>
                   <div className="text-2xl font-bold text-indigo-400 mt-1 font-mono">
-                    {results.metrics?.roc_auc !== undefined
+                    {results.metrics?.roc_auc != null
                       ? results.metrics.roc_auc.toFixed(4)
                       : "N/A"}
                   </div>

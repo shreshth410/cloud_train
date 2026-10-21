@@ -12,9 +12,11 @@ from common.logging import get_logger
 logger = get_logger("s3")
 
 
-def get_s3_client() -> Any:
+def get_s3_client(*, public: bool = False) -> Any:
     """Create or return an S3 client, supporting local emulator via S3_ENDPOINT_URL."""
     endpoint_url = os.getenv("S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL")
+    if public:
+        endpoint_url = os.getenv("S3_PUBLIC_ENDPOINT_URL") or endpoint_url
     # Use path-style addressing for local emulator compatibility (Minio/Localstack)
     s3_config = Config(s3={"addressing_style": "path"}) if endpoint_url else None
     return boto3.client("s3", endpoint_url=endpoint_url, config=s3_config)
@@ -27,7 +29,7 @@ def generate_presigned_upload(
     expires_in: int = 900,  # 15 minutes
 ) -> dict[str, Any]:
     """Generate a pre-signed S3 POST for uploading a dataset file directly from browser."""
-    client = get_s3_client()
+    client = get_s3_client(public=True)
     conditions = [
         ["content-length-range", 1, max_size_bytes],
         {"key": key},
@@ -52,7 +54,7 @@ def generate_presigned_download(
     filename: str | None = None,
 ) -> str:
     """Generate a pre-signed GET URL for downloading an artifact or dataset."""
-    client = get_s3_client()
+    client = get_s3_client(public=True)
     params = {"Bucket": bucket_name, "Key": key}
     if filename:
         params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'

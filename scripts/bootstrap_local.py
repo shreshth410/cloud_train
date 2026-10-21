@@ -48,6 +48,21 @@ def bootstrap_local_resources(endpoint_url: str, region: str = "ap-south-1") -> 
         else:
             print(f"  [WARN] S3 creation warning: {e}")
 
+    s3.put_bucket_cors(
+        Bucket=bucket_name,
+        CORSConfiguration={
+            "CORSRules": [
+                {
+                    "AllowedOrigins": ["*"],
+                    "AllowedMethods": ["GET", "POST", "HEAD"],
+                    "AllowedHeaders": ["*"],
+                    "ExposeHeaders": ["ETag"],
+                    "MaxAgeSeconds": 3000,
+                }
+            ]
+        },
+    )
+
     # 2. SQS Queues
     queues = [
         "cloudtrain-local-jobs",
@@ -140,6 +155,7 @@ def bootstrap_local_resources(endpoint_url: str, region: str = "ap-south-1") -> 
     try:
         ddb.put_item(
             TableName=jobs_table,
+            ConditionExpression="attribute_not_exists(job_id)",
             Item={
                 "job_id": {"S": "__capacity__"},
                 "in_use": {"N": "0"},

@@ -8,7 +8,7 @@ export type JobStatus =
   | "CANCELLED"
   | "TIMED_OUT";
 
-export type DatasetStatus = "UPLOADING" | "PROFILING" | "READY" | "INVALID";
+export type DatasetStatus = "PENDING_UPLOAD" | "UPLOADING" | "PROFILING" | "READY" | "INVALID";
 
 export type TaskType = "classification" | "regression";
 

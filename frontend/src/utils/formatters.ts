@@ -114,6 +114,7 @@ export function getJobStatusBadge(status: JobStatus): StatusBadgeConfig {
 
 export function getDatasetStatusBadge(status: DatasetStatus): StatusBadgeConfig {
   switch (status) {
+    case "PENDING_UPLOAD":
     case "UPLOADING":
       return {
         label: "Uploading",

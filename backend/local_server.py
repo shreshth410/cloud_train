@@ -43,6 +43,7 @@ os.environ.setdefault("JOBS_QUEUE_URL", "http://127.0.0.1:4566/000000000000/clou
 os.environ.setdefault("STATUS_QUEUE_URL", "http://127.0.0.1:4566/000000000000/cloudtrain-local-status")
 os.environ.setdefault("TRAINER_IMAGE_URI", "cloudtrain-trainer:latest")
 os.environ.setdefault("MAX_CONCURRENT_INSTANCES", "2")
+os.environ.setdefault("MAX_DATASETS_PER_USER", "50")
 os.environ.setdefault("CORS_ALLOW_ORIGIN", "*")
 
 import boto3  # noqa: E402
@@ -135,9 +136,11 @@ class CloudTrainHttpHandler(BaseHTTPRequestHandler):
             resp_body = resp.get("body", "")
 
             self.send_response(status_code)
+            has_cors = any(k.lower() == "access-control-allow-origin" for k in resp_headers)
             for k, v in resp_headers.items():
                 self.send_header(k, v)
-            self._send_cors_headers()
+            if not has_cors:
+                self._send_cors_headers()
 
             encoded_body = resp_body.encode("utf-8")
             self.send_header("Content-Length", str(len(encoded_body)))
@@ -203,8 +206,11 @@ def background_queue_worker() -> None:
                             }
                         )
                     print(f"[Worker] Dispatching {len(records)} job(s) to job_launcher...")
-                    launcher_handler({"Records": records}, None)
+                    result = launcher_handler({"Records": records}, None)
+                    failed = {item["itemIdentifier"] for item in result.get("batchItemFailures", [])}
                     for m in messages:
+                        if m["MessageId"] in failed:
+                            continue
                         with contextlib.suppress(Exception):
                             sqs.delete_message(
                                 QueueUrl=jobs_url,
@@ -229,8 +235,11 @@ def background_queue_worker() -> None:
                                 "body": m["Body"],
                             }
                         )
-                    status_handler({"Records": records}, None)
+                    result = status_handler({"Records": records}, None)
+                    failed = {item["itemIdentifier"] for item in result.get("batchItemFailures", [])}
                     for m in messages:
+                        if m["MessageId"] in failed:
+                            continue
                         with contextlib.suppress(Exception):
                             sqs.delete_message(
                                 QueueUrl=status_url,
@@ -268,19 +277,26 @@ def background_queue_worker() -> None:
             except Exception:
                 pass
 
+            time.sleep(2)
         except Exception:
             time.sleep(2)
 
 
 def start_server(port: int = 8000) -> None:
+    if os.environ.get("ENV") != "local":
+        raise RuntimeError("The development server may only run with ENV=local")
     # 1. Start embedded Moto cloud emulator if port 4566 is not running
     import socket
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    is_open = s.connect_ex(("127.0.0.1", 4566)) == 0
+    endpoint = os.environ["AWS_ENDPOINT_URL"]
+    parsed = urllib.parse.urlparse(endpoint)
+    is_open = s.connect_ex((parsed.hostname, parsed.port or 4566)) == 0
     s.close()
 
     if not is_open:
+        if parsed.hostname not in ("localhost", "127.0.0.1"):
+            raise RuntimeError(f"Cloud emulator is unavailable at {endpoint}")
         print("[Cloud Emulator] Starting embedded Moto server on http://127.0.0.1:4566...")
         moto_server = ThreadedMotoServer(ip_address="127.0.0.1", port=4566)
         moto_server.start()
@@ -288,10 +304,10 @@ def start_server(port: int = 8000) -> None:
 
     # 2. Bootstrap local S3 buckets, SQS queues, and DynamoDB tables
     print("[Bootstrap] Initializing S3 bucket, DynamoDB tables, and SQS queues...")
-    try:
-        bootstrap_local_resources("http://127.0.0.1:4566", "ap-south-1")
-    except Exception as e:
-        print(f"[Bootstrap] Notice: {e}")
+    bootstrap_local_resources(endpoint, os.environ["AWS_REGION"])
+    sqs = boto3.client("sqs", endpoint_url=os.environ["SQS_ENDPOINT_URL"])
+    for variable, name in (("JOBS_QUEUE_URL", "jobs"), ("STATUS_QUEUE_URL", "status")):
+        os.environ[variable] = sqs.get_queue_url(QueueName=f"cloudtrain-local-{name}")["QueueUrl"]
 
     # 3. Start background worker thread
     worker_thread = threading.Thread(target=background_queue_worker, daemon=True)

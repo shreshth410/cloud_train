@@ -21,3 +21,14 @@ This file records design decisions made during implementation, especially where 
 | 15 | DynamoDB Decimal safe transformations | Implemented to_dynamo_safe/from_dynamo_safe and DecimalEncoder to ensure seamless float-Decimal conversions across boto3 and REST JSON | 2026-10-19 |
 | 16 | SPA runtime config & local auth bypass | Loaded `/config.json` dynamically at boot to maintain environment-agnostic builds across S3/CloudFront, and provided a local guest session toggle for rapid testing | 2026-10-19 |
 | 17 | GitHub Actions OIDC CI/CD & Prod Environment Gate | Implemented keyless AWS role assumption via OIDC (`gha-plan` / `gha-deploy`), automated CI checks on PRs, manual review gate on `prod` environment, and fast post-deployment health verification | 2026-10-19 |
+
+## Local Docker repair (2026-10-21)
+
+The installed LocalStack image exits with code 55 without an auth token. The local
+Compose deployment now uses Moto 5.2.4, already used by this project's tests, as
+an account-free emulator. Its state is ephemeral; this is a laptop demo stack,
+not a persistent public deployment. AWS Terraform remains the production path.
+The stack builds the frontend, API/dispatcher and trainer and runs each training
+job in a separate Docker container on the same named network. Browser S3 signing
+uses S3_PUBLIC_ENDPOINT_URL; internal requests use S3_ENDPOINT_URL. This avoids
+returning container DNS names to the browser. Local auth stays local-only.
