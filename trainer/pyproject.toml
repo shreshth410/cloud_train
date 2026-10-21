@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "CloudTrain training container"
 requires-python = ">=3.11"
 dependencies = [
-    "scikit-learn>=1.5.0,<1.6",
+    "scikit-learn>=1.5.0,<1.10",
     "xgboost>=2.1.0,<2.2",
     "pandas>=2.2.0,<2.3",
     "numpy>=2.0.0,<3",
