@@ -39,6 +39,7 @@ class ValidationError(CloudTrainError):
         message: str = "Configuration is invalid.",
         field_errors: list[dict[str, str]] | None = None,
     ):
+        self.field_errors: list[dict[str, str]] = field_errors or []
         details = {"fields": field_errors} if field_errors else {}
         super().__init__(
             code="VALIDATION_FAILED",
